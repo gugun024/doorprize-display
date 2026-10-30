@@ -38,8 +38,13 @@ class _AudienceScreenState extends State<AudienceScreen> {
   void initState() {
     super.initState();
     _goFullscreen();
-    WindowMethodChannel(DoorprizeProtocol.channelName)
-        .setMethodCallHandler(_onMethod);
+    // Mode bidirectional + operator juga daftar sebagai handler
+    // (lihat AudienceChannel.initReceiver) — pola yang sama dipakai
+    // aplikasi undian.
+    WindowMethodChannel(
+      DoorprizeProtocol.channelName,
+      mode: ChannelMode.bidirectional,
+    ).setMethodCallHandler(_onMethod);
   }
 
   Future<void> _onMethod(MethodCall call) async {

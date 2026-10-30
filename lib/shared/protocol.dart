@@ -19,10 +19,30 @@ class DoorprizeProtocol {
 class AudienceChannel {
   AudienceChannel._();
 
-  static final _channel = WindowMethodChannel(DoorprizeProtocol.channelName);
+  static final _channel = WindowMethodChannel(
+    DoorprizeProtocol.channelName,
+    mode: ChannelMode.bidirectional,
+  );
 
   /// Nyalakan setelah window penonton berhasil dibuka.
   static bool enabled = false;
+
+  /// WAJIB dipanggil sekali saat window operator mulai.
+  /// Mendaftarkan operator sebagai handler di channel bidirectional —
+  /// tanpa ini native menganggap operator bukan bagian dari pasangan
+  /// sehingga SEMUA invokeMethod dari operator gagal diam-diam.
+  /// (Pola yang sama dipakai aplikasi undian.)
+  static Future<void> initReceiver(
+      Future<void> Function(String method, Map? args) onMessage) async {
+    try {
+      await _channel.setMethodCallHandler((call) async {
+        final args = (call.arguments as Map?)?.cast<String, Object?>();
+        await onMessage(call.method, args);
+      });
+    } catch (_) {
+      // Gagal registrasi — pengiriman ke penonton tetap dicoba.
+    }
+  }
 
   static Future<void> send(String method, [Map<String, Object?>? args]) async {
     if (!enabled) return;

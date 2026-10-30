@@ -56,6 +56,9 @@ class _OperatorScreenState extends State<OperatorScreen> {
     await windowManager.ensureInitialized();
     await windowManager.setTitle('Doorprize Display - Operator');
     await windowManager.setMinimumSize(const Size(700, 600));
+    // Daftarkan operator di channel bidirectional (wajib — lihat
+    // AudienceChannel.initReceiver) SEBELUM ada pengiriman ke penonton.
+    await AudienceChannel.initReceiver((_, _) async {});
     // Judul di-load sekali di awal (jangan di _load, biar tidak menimpa
     // teks yang sedang diketik tiap ada perubahan nomor).
     _titleCtrl.text = await DatabaseHelper.instance.getSetting(
@@ -63,7 +66,8 @@ class _OperatorScreenState extends State<OperatorScreen> {
       DatabaseHelper.defaultTitle,
     );
     await _load();
-    await _openAudience();
+    // CATATAN: window penonton TIDAK dibuka otomatis — user membukanya
+    // sendiri lewat tombol TV di AppBar (keputusan user 2026-10-30).
   }
 
   Future<void> _load() async {
@@ -102,8 +106,13 @@ class _OperatorScreenState extends State<OperatorScreen> {
       );
       await controller.show();
       AudienceChannel.enabled = true;
-      await _syncAudience();
       if (mounted) setState(() => _audienceOpen = true);
+      // Sinkronisasi awal. Diulang setelah jeda singkat karena engine
+      // window penonton butuh waktu untuk registrasi handler channel-nya —
+      // kiriman pertama bisa hilang kalau handler belum siap.
+      await _syncAudience();
+      await Future.delayed(const Duration(seconds: 1));
+      await _syncAudience();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
