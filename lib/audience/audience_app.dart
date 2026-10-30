@@ -152,12 +152,21 @@ class _AudienceScreenState extends State<AudienceScreen> {
                             children: [
                               for (var i = 0; i < n; i++) ...[
                                 if (i > 0) const SizedBox(height: gap),
-                                SizedBox(
-                                  height: cardH,
-                                  child: _numberCard(
-                                    seq: i + 1,
-                                    nomor: shown[i],
-                                    fontSize: fontSize,
+                                // Kartu dibatasi lebarnya (maks 1050px) dan
+                                // ditengahkan — sesuai mock, tidak melar
+                                // penuh selebar layar.
+                                Center(
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxWidth: 1050,
+                                      minHeight: cardH,
+                                      maxHeight: cardH,
+                                    ),
+                                    child: _numberCard(
+                                      seq: i + 1,
+                                      nomor: shown[i],
+                                      fontSize: fontSize,
+                                    ),
                                   ),
                                 ),
                               ],
