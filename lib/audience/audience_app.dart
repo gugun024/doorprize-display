@@ -136,16 +136,24 @@ class _AudienceScreenState extends State<AudienceScreen> {
                     : LayoutBuilder(
                         builder: (ctx, constraints) {
                           final n = shown.length;
-                          final gap = 12.0;
+                          const gap = 12.0;
+                          // Kartu dibatasi tingginya agar tidak melar jadi
+                          // raksasa saat nomor sedikit (1 nomor = hero).
+                          final maxCardH = n == 1 ? 280.0 : 190.0;
+                          // Bagi rata ruang yang ada, tapi tidak melebihi
+                          // batas — selalu muat tanpa overflow.
                           final cardH =
-                              (constraints.maxHeight - gap * (n - 1)) / n;
-                          // Ukuran font mengikuti tinggi kartu.
-                          final fontSize = (cardH * 0.55).clamp(20.0, 72.0);
+                              ((constraints.maxHeight - gap * (n - 1)) / n)
+                                  .clamp(0.0, maxCardH);
+                          final fontSize =
+                              (cardH * 0.5).clamp(18.0, 150.0);
                           return Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               for (var i = 0; i < n; i++) ...[
-                                if (i > 0) SizedBox(height: gap),
-                                Expanded(
+                                if (i > 0) const SizedBox(height: gap),
+                                SizedBox(
+                                  height: cardH,
                                   child: _numberCard(
                                     seq: i + 1,
                                     nomor: shown[i],
