@@ -1,0 +1,191 @@
+# Build otomatis aplikasi Windows (Doorprize Display).
+#
+# Cara pakai:
+#   - Push biasa ke main  -> build jalan, hasil bisa diunduh di tab Actions
+#                           (artifacts, 90 hari).
+#   - Manual               -> tab Actions > Build Windows Release > Run workflow
+#                           (pilih patch/minor/major) -> versi naik + GitHub
+#                           Release dibuat otomatis dengan file .zip terlampir.
+
+name: Build Windows Release
+
+on:
+  push:
+    branches: [main]
+    # Hemat: build hanya jalan kalau file kode berubah.
+    # Edit README/docs saja -> workflow di-skip otomatis.
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'installer/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Jenis kenaikan versi (patch=0.1.0→0.1.1, minor=0.1.0→0.2.0, major=0.1.0→1.0.0)'
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write # untuk membuat GitHub Release
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Naikkan versi (patch/minor/major)
+        id: bump
+        if: github.event_name == 'workflow_dispatch'
+        shell: python
+        run: |
+          import os, pathlib, re
+          p = pathlib.Path("pubspec.yaml")
+          src = p.read_text(encoding="utf-8")
+          m = re.search(r"^version:\s*(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?",
+                        src, re.M)
+          assert m, "format version di pubspec.yaml tidak dikenal"
+          major, minor, patch = (int(m.group(1)), int(m.group(2)),
+                                  int(m.group(3)))
+          build = int(m.group(4) or 0)
+          kind = "${{ inputs.bump }}"
+          if kind == "major":
+              major, minor, patch = major + 1, 0, 0
+          elif kind == "minor":
+              minor, patch = minor + 1, 0
+          else:
+              patch += 1
+          build += 1
+          new = f"{major}.{minor}.{patch}+{build}"
+          tag = f"v{major}.{minor}.{patch}"
+          src = re.sub(r"^version:\s*.*", f"version: {new}",
+                       src, count=1, flags=re.M)
+          p.write_text(src, encoding="utf-8")
+          print(f"version -> {new} (tag {tag})")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"new_version={new}\n")
+              f.write(f"tag={tag}\n")
+
+      - name: Commit kenaikan versi
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          git add pubspec.yaml
+          git commit -m "Rilis ${{ steps.bump.outputs.tag }} [skip ci]"
+          git push origin main
+
+      - name: Generate Windows runner
+        run: flutter create --platforms=windows .
+
+      - name: Patch flutter_window.cpp (registrasi plugin sub-window)
+        # Wajib: tanpa ini window penonton (sub-window) tidak bisa fullscreen
+        # karena plugin window_manager tidak terdaftar di engine keduanya.
+        # Lihat README > "Cara build manual di PC Windows" langkah 3.
+        shell: python
+        run: |
+          import pathlib
+          p = pathlib.Path("windows/runner/flutter_window.cpp")
+          src = p.read_text(encoding="utf-8")
+
+          include = '#include "desktop_multi_window/desktop_multi_window_plugin.h"'
+          if "desktop_multi_window_plugin.h" not in src:
+              anchor = '#include "flutter/generated_plugin_registrant.h"'
+              assert anchor in src, "anchor include tidak ditemukan"
+              src = src.replace(anchor, anchor + "\n" + include, 1)
+
+          callback = """  DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
+                auto* flutter_view_controller =
+                    reinterpret_cast<flutter::FlutterViewController*>(controller);
+                auto* registry = flutter_view_controller->engine();
+                RegisterPlugins(registry);
+              });
+          """
+          if "DesktopMultiWindowSetWindowCreatedCallback" not in src:
+              anchor = "RegisterPlugins(flutter_controller_->engine());"
+              assert anchor in src, "anchor RegisterPlugins tidak ditemukan"
+              src = src.replace(anchor, anchor + "\n" + callback, 1)
+
+          p.write_text(src, encoding="utf-8")
+          print("flutter_window.cpp patched OK")
+
+          # Nama file .exe: DoorprizeDisplay.exe (bukan doorprize_display.exe).
+          cmake = pathlib.Path("windows/CMakeLists.txt")
+          csrc = cmake.read_text(encoding="utf-8")
+          old_binary = 'set(BINARY_NAME "doorprize_display")'
+          assert old_binary in csrc, "anchor BINARY_NAME tidak ditemukan"
+          csrc = csrc.replace(
+              old_binary, 'set(BINARY_NAME "DoorprizeDisplay")', 1)
+          cmake.write_text(csrc, encoding="utf-8")
+          print("CMakeLists.txt BINARY_NAME patched OK")
+
+          # Nama produk di properties file Windows (Task Manager, dsb).
+          rc = pathlib.Path("windows/runner/Runner.rc")
+          rsrc = rc.read_text(encoding="utf-8")
+          rsrc = rsrc.replace(
+              'VALUE "FileDescription", "doorprize_display"',
+              'VALUE "FileDescription", "Doorprize Display"')
+          rsrc = rsrc.replace(
+              'VALUE "ProductName", "doorprize_display"',
+              'VALUE "ProductName", "Doorprize Display"')
+          rc.write_text(rsrc, encoding="utf-8")
+          print("Runner.rc patched OK")
+
+      - name: Ambil dependencies
+        run: flutter pub get
+
+      - name: Analisis
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Windows (.exe rilis)
+        run: flutter build windows --release
+
+      - name: Zip hasil build
+        shell: pwsh
+        run: |
+          $out = "build/windows/x64/runner/Release"
+          if (!(Test-Path $out)) { throw "Folder hasil build tidak ditemukan: $out" }
+          # Sertakan panduan syarat & cara pakai versi portable.
+          Copy-Item "installer/BACA-DULU.txt" -Destination "$out/BACA-DULU.txt" -Force
+          Compress-Archive -Path "$out/*" -DestinationPath "DoorprizeDisplay-windows.zip" -Force
+          Get-Item "DoorprizeDisplay-windows.zip" | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoorprizeDisplay-windows
+          path: DoorprizeDisplay-windows.zip
+          retention-days: 90
+
+      - name: Buat GitHub Release
+        # Hanya untuk run manual (pilih patch/minor/major).
+        # Push biasa ke main hanya menghasilkan artifact, tanpa Release.
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          files: DoorprizeDisplay-windows.zip
+          generate_release_notes: true

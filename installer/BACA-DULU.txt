@@ -1,0 +1,27 @@
+Doorprize Display — aplikasi pengumuman nomor doorprize (versi portable)
+=============================================================================
+
+CARA PAKAI
+1. Extract SEMUA isi zip ini ke satu folder (jangan cuma file .exe-nya).
+2. Jalankan DoorprizeDisplay.exe dari folder hasil extract.
+3. Window operator terbuka + window penonton otomatis terbuka.
+   Geser window penonton ke proyektor/TV (atau biarkan — aplikasi mencoba
+   memindahkannya sendiri ke layar kedua lalu fullscreen).
+4. Ketik nomor doorprize di window operator, tekan Tambah (atau Enter).
+   Nomor langsung muncul besar di layar penonton.
+
+PENTING: JANGAN PISAHKAN FILE
+File .exe butuh file-file pendamping di folder yang sama (flutter_windows.dll,
+sqlite3.dll, folder data/, dsb). Kalau .exe-nya dicopy keluar sendirian,
+aplikasi tidak akan jalan.
+
+SYARAT: Microsoft Visual C++ Redistributable (x64)
+Aplikasi butuh library ini. Kebanyakan PC sudah punya; kalau aplikasi
+diklik tapi tidak terjadi apa-apa (crash diam-diam), install dulu:
+  https://aka.ms/vs/17/release/vc_redist.x64.exe
+Lalu restart PC dan coba lagi.
+
+DATA
+Nomor-nomor tersimpan otomatis di database lokal (dokumen pengguna) sehingga
+aman ditutup-buka. Tombol "Reset semua" di window operator menghapus
+seluruh nomor (pakai konfirmasi).
