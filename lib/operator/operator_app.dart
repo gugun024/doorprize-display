@@ -41,6 +41,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
   bool _loading = true;
   bool _openingAudience = false;
   bool _audienceOpen = false;
+  WindowController? _audienceController;
 
   @override
   void initState() {
@@ -100,6 +101,35 @@ class _OperatorScreenState extends State<OperatorScreen> {
     return null;
   }
 
+  /// Toggle layar penonton: klik buka, klik lagi tutup.
+  Future<void> _toggleAudience() async {
+    if (_openingAudience) return;
+    final controller = _audienceController;
+    if (_audienceOpen && controller != null) {
+      try {
+        await controller.hide();
+      } catch (_) {}
+      AudienceChannel.enabled = false;
+      if (mounted) {
+        setState(() {
+          _audienceOpen = false;
+          _audienceController = null;
+        });
+      }
+      return;
+    }
+    // State tidak sinkron (mis. penonton ditutup via tombol X di window-nya)
+    // → reset lalu buka baru.
+    if (mounted) {
+      setState(() {
+        _audienceOpen = false;
+        _audienceController = null;
+      });
+    }
+    AudienceChannel.enabled = false;
+    await _openAudience();
+  }
+
   Future<void> _openAudience() async {
     if (_openingAudience) return;
     if (mounted) setState(() => _openingAudience = true);
@@ -108,6 +138,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
       controller ??= await WindowController.create(
         const WindowConfiguration(arguments: 'audience'),
       );
+      _audienceController = controller;
       await controller.show();
       AudienceChannel.enabled = true;
       if (mounted) setState(() => _audienceOpen = true);
@@ -323,9 +354,9 @@ class _OperatorScreenState extends State<OperatorScreen> {
                 color: _audienceOpen ? AppColors.success : AppColors.muted,
               ),
               tooltip: _audienceOpen
-                  ? 'Layar penonton terbuka'
+                  ? 'Tutup layar penonton'
                   : 'Buka layar penonton',
-              onPressed: _openingAudience ? null : _openAudience,
+              onPressed: _toggleAudience,
             ),
           ],
           bottom: TabBar(

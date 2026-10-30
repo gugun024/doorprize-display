@@ -138,14 +138,16 @@ class DatabaseHelper {
     return startRound();
   }
 
-  /// Mulai ronde baru ("Ronde N" otomatis).
+  /// Mulai ronde baru. Nama = "Ronde N" dari MAX(id)+1 (bukan COUNT+1,
+  /// agar tidak duplikat/mendaur nomor bila ada ronde yang dihapus
+  /// dari riwayat).
   Future<Round> startRound() async {
     final db = await database;
-    final count =
-        (await db.rawQuery('SELECT COUNT(*) AS c FROM rounds')).first['c']
-            as int;
+    final next =
+        (await db.rawQuery('SELECT COALESCE(MAX(id), 0) + 1 AS n FROM rounds'))
+            .first['n'] as int;
     final id = await db.insert('rounds', {
-      'nama': 'Ronde ${count + 1}',
+      'nama': 'Ronde $next',
       'created_at': DateTime.now().millisecondsSinceEpoch,
       'finished_at': null,
     });

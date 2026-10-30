@@ -116,6 +116,18 @@ void main() {
     expect(await db.getNumbers(r1.id!), isEmpty);
   });
 
+  test('nama ronde tidak duplikat setelah hapus riwayat', () async {
+    final db = DatabaseHelper.instance;
+    final r1 = await db.getOrCreateActiveRound(); // Ronde 1
+    await db.finishRound(r1.id!);
+    final r2 = await db.getOrCreateActiveRound(); // Ronde 2
+    expect(r2.nama, 'Ronde 2');
+    await db.deleteRound(r1.id!); // hapus Ronde 1 dari riwayat
+    await db.finishRound(r2.id!);
+    final r3 = await db.getOrCreateActiveRound();
+    expect(r3.nama, 'Ronde 3'); // bukan "Ronde 2" lagi
+  });
+
   test('settings: judul default & simpan', () async {
     final db = DatabaseHelper.instance;
     expect(
