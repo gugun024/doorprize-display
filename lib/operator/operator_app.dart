@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -30,6 +32,7 @@ class OperatorScreen extends StatefulWidget {
 class _OperatorScreenState extends State<OperatorScreen> {
   final _inputCtrl = TextEditingController();
   final _titleCtrl = TextEditingController();
+  Timer? _titleDebounce;
   Round? _round;
   List<DoorprizeNumber> _numbers = [];
   List<Round> _history = [];
@@ -47,6 +50,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
 
   @override
   void dispose() {
+    _titleDebounce?.cancel();
     _inputCtrl.dispose();
     _titleCtrl.dispose();
     super.dispose();
@@ -55,7 +59,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
   Future<void> _init() async {
     await windowManager.ensureInitialized();
     await windowManager.setTitle('Doorprize Display - Operator');
-    await windowManager.setMinimumSize(const Size(700, 600));
+    await windowManager.setMinimumSize(const Size(760, 640));
     // Daftarkan operator di channel bidirectional (wajib — lihat
     // AudienceChannel.initReceiver) SEBELUM ada pengiriman ke penonton.
     await AudienceChannel.initReceiver((_, _) async {});
@@ -237,6 +241,21 @@ class _OperatorScreenState extends State<OperatorScreen> {
     }
   }
 
+  /// Judul disimpan otomatis (debounce) + langsung tampil di penonton.
+  void _onTitleChanged(String _) {
+    _titleDebounce?.cancel();
+    _titleDebounce = Timer(const Duration(milliseconds: 600), _saveTitle);
+  }
+
+  Future<void> _saveTitle() async {
+    final t = _titleCtrl.text.trim();
+    await DatabaseHelper.instance.setSetting(
+      DatabaseHelper.kTitle,
+      t.isEmpty ? DatabaseHelper.defaultTitle : t,
+    );
+    await _syncAudience();
+  }
+
   Future<void> _toggleHistory(Round r) async {
     final id = r.id!;
     if (_expanded.contains(id)) {
@@ -284,15 +303,6 @@ class _OperatorScreenState extends State<OperatorScreen> {
     }
   }
 
-  Future<void> _saveTitle() async {
-    final t = _titleCtrl.text.trim();
-    await DatabaseHelper.instance.setSetting(
-      DatabaseHelper.kTitle,
-      t.isEmpty ? DatabaseHelper.defaultTitle : t,
-    );
-    await _syncAudience();
-  }
-
   String _fmtTime(int ms) {
     final d = DateTime.fromMillisecondsSinceEpoch(ms);
     String p2(int v) => v.toString().padLeft(2, '0');
@@ -301,275 +311,328 @@ class _OperatorScreenState extends State<OperatorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Doorprize Display — Operator'),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _audienceOpen ? Icons.tv : Icons.tv_off,
-              color: _audienceOpen ? AppColors.success : AppColors.muted,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Doorprize Display'),
+          actions: [
+            IconButton(
+              icon: Icon(
+                _audienceOpen ? Icons.tv : Icons.tv_off,
+                color: _audienceOpen ? AppColors.success : AppColors.muted,
+              ),
+              tooltip: _audienceOpen
+                  ? 'Layar penonton terbuka'
+                  : 'Buka layar penonton',
+              onPressed: _openingAudience ? null : _openAudience,
             ),
-            tooltip: _audienceOpen
-                ? 'Layar penonton terbuka'
-                : 'Buka layar penonton',
-            onPressed: _openingAudience ? null : _openAudience,
+          ],
+          bottom: TabBar(
+            indicatorColor: AppColors.gold,
+            labelColor: AppColors.gold,
+            unselectedLabelColor: AppColors.muted,
+            tabs: [
+              const Tab(text: 'Ronde Aktif', icon: Icon(Icons.playlist_add)),
+              Tab(
+                text: 'Riwayat (${_history.length})',
+                icon: const Icon(Icons.history),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
                 children: [
-                  // Header ronde aktif
-                  Row(
+                  _activeTab(),
+                  _historyTab(),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _activeTab() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Kartu header ronde
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border.all(color: AppColors.gold.withValues(alpha: 0.4)),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      const Text(
+                        'RONDE AKTIF',
+                        style: TextStyle(
+                          fontSize: 12,
+                          letterSpacing: 2,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _round?.nama ?? '…',
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.gold,
+                        ),
+                      ),
+                      Text(
+                        '${_numbers.length} nomor terdaftar',
+                        style: const TextStyle(color: AppColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _finishRound,
+                  icon: const Icon(Icons.check),
+                  label: const Text('Selesaikan Ronde'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Input nomor
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _inputCtrl,
+                  autofocus: true,
+                  style: const TextStyle(fontSize: 18),
+                  decoration: const InputDecoration(
+                    labelText: 'Nomor doorprize',
+                    hintText: 'Contoh: 012345 — Enter untuk tambah',
+                    prefixIcon: Icon(Icons.confirmation_number_outlined),
+                  ),
+                  onSubmitted: (_) => _add(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: _add,
+                icon: const Icon(Icons.add),
+                label: const Text('Tambah'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Judul layar (live)
+          TextField(
+            controller: _titleCtrl,
+            onChanged: _onTitleChanged,
+            decoration: const InputDecoration(
+              labelText: 'Judul layar penonton',
+              hintText: 'Otomatis tersimpan & tampil saat mengetik',
+              prefixIcon: Icon(Icons.title),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 8),
+          const SizedBox(height: 4),
+          // Daftar nomor
+          Expanded(
+            child: _numbers.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.confirmation_number_outlined,
+                          size: 48,
+                          color: AppColors.muted,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Belum ada nomor di ronde ini.\nKetik nomor di atas lalu tekan Enter.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: _numbers.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, i) {
+                      final n = _numbers[i];
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          border: Border.all(color: AppColors.border),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
                           children: [
-                            Text(
-                              _round?.nama ?? '…',
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.gold,
+                            SizedBox(
+                              width: 40,
+                              child: Text(
+                                (i + 1).toString().padLeft(2, '0'),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: AppColors.gold,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                            Text(
-                              '${_numbers.length} nomor',
-                              style:
-                                  const TextStyle(color: AppColors.muted),
+                            Expanded(
+                              child: Text(
+                                n.nomor,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'monospace',
+                                  fontFamilyFallback: [
+                                    'Courier New',
+                                    'monospace'
+                                  ],
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit,
+                                  color: AppColors.muted),
+                              tooltip: 'Edit',
+                              onPressed: () => _edit(n),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  color: AppColors.danger),
+                              tooltip: 'Hapus',
+                              onPressed: () => _delete(n),
                             ),
                           ],
                         ),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _finishRound,
-                        icon: const Icon(Icons.check),
-                        label: const Text('Selesai'),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                  const SizedBox(height: 16),
-                  // Input nomor
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _inputCtrl,
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Nomor doorprize',
-                            hintText: 'Contoh: 012345',
-                          ),
-                          onSubmitted: (_) => _add(),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton.icon(
-                        onPressed: _add,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Tambah'),
-                      ),
-                    ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _historyTab() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: _history.isEmpty
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.history,
+                    size: 48,
+                    color: AppColors.muted,
                   ),
-                  const SizedBox(height: 12),
-                  // Judul layar
-                  SizedBox(
-                    width: 280,
-                    child: TextField(
-                      controller: _titleCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Judul layar penonton',
-                      ),
-                      onSubmitted: (_) => _saveTitle(),
-                    ),
-                  ),
-                  const Divider(height: 28),
-                  // Daftar nomor ronde aktif
-                  Expanded(
-                    flex: 3,
-                    child: _numbers.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Belum ada nomor di ronde ini.\nKetik nomor di atas lalu tekan Tambah.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: AppColors.muted),
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: _numbers.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (ctx, i) {
-                              final n = _numbers[i];
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.surface,
-                                  border: Border.all(
-                                      color: AppColors.border),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 40,
-                                      child: Text(
-                                        (i + 1).toString().padLeft(2, '0'),
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: AppColors.gold,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Text(
-                                        n.nomor,
-                                        style: const TextStyle(
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.w600,
-                                          fontFamily: 'monospace',
-                                          fontFamilyFallback: [
-                                            'Courier New',
-                                            'monospace'
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.edit,
-                                          color: AppColors.muted),
-                                      tooltip: 'Edit',
-                                      onPressed: () => _edit(n),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline,
-                                          color: AppColors.danger),
-                                      tooltip: 'Hapus',
-                                      onPressed: () => _delete(n),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  const Divider(height: 28),
-                  // Riwayat ronde
-                  const Text(
-                    'Riwayat Ronde',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    flex: 2,
-                    child: _history.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Belum ada ronde yang selesai.',
-                              style: TextStyle(color: AppColors.muted),
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: _history.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (ctx, i) {
-                              final r = _history[i];
-                              final isOpen = _expanded.contains(r.id);
-                              final nums = _historyNumbers[r.id] ?? const [];
-                              return Container(
-                                decoration: BoxDecoration(
-                                  color: AppColors.surface,
-                                  border: Border.all(
-                                      color: AppColors.border),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Column(
-                                  children: [
-                                    ListTile(
-                                      title: Text(
-                                        r.nama,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w600),
-                                      ),
-                                      subtitle: Text(
-                                        _fmtTime(r.finishedAt ?? r.createdAt),
-                                        style: const TextStyle(
-                                            color: AppColors.muted),
-                                      ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                                Icons.delete_outline,
-                                                color: AppColors.danger),
-                                            tooltip: 'Hapus riwayat',
-                                            onPressed: () =>
-                                                _deleteHistoryRound(r),
-                                          ),
-                                          Icon(isOpen
-                                              ? Icons.expand_less
-                                              : Icons.expand_more),
-                                        ],
-                                      ),
-                                      onTap: () => _toggleHistory(r),
-                                    ),
-                                    if (isOpen)
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            16, 0, 16, 12),
-                                        child: nums.isEmpty
-                                            ? const Text(
-                                                'Tidak ada nomor.',
-                                                style: TextStyle(
-                                                    color: AppColors.muted),
-                                              )
-                                            : Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                children: [
-                                                  for (var j = 0;
-                                                      j < nums.length;
-                                                      j++)
-                                                    Chip(
-                                                      label: Text(
-                                                        '${(j + 1).toString().padLeft(2, '0')}. ${nums[j].nomor}',
-                                                        style: const TextStyle(
-                                                          fontFamily:
-                                                              'monospace',
-                                                        ),
-                                                      ),
-                                                      backgroundColor:
-                                                          AppColors.card,
-                                                      side: const BorderSide(
-                                                          color: AppColors
-                                                              .border),
-                                                    ),
-                                                ],
-                                              ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
+                  SizedBox(height: 12),
+                  Text(
+                    'Belum ada ronde yang selesai.\nRonde yang diselesaikan akan tersimpan di sini.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.muted),
                   ),
                 ],
               ),
+            )
+          : ListView.separated(
+              itemCount: _history.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (ctx, i) {
+                final r = _history[i];
+                final isOpen = _expanded.contains(r.id);
+                final nums = _historyNumbers[r.id] ?? const [];
+                return Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        title: Text(
+                          r.nama,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 17,
+                          ),
+                        ),
+                        subtitle: Text(
+                          _fmtTime(r.finishedAt ?? r.createdAt),
+                          style: const TextStyle(color: AppColors.muted),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  color: AppColors.danger),
+                              tooltip: 'Hapus riwayat',
+                              onPressed: () => _deleteHistoryRound(r),
+                            ),
+                            Icon(isOpen
+                                ? Icons.expand_less
+                                : Icons.expand_more),
+                          ],
+                        ),
+                        onTap: () => _toggleHistory(r),
+                      ),
+                      if (isOpen)
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                          child: nums.isEmpty
+                              ? const Text(
+                                  'Tidak ada nomor.',
+                                  style:
+                                      TextStyle(color: AppColors.muted),
+                                )
+                              : Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (var j = 0; j < nums.length; j++)
+                                      Chip(
+                                        label: Text(
+                                          '${(j + 1).toString().padLeft(2, '0')}. ${nums[j].nomor}',
+                                          style: const TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        backgroundColor: AppColors.card,
+                                        side: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                    ],
+                  ),
+                );
+              },
             ),
     );
   }
