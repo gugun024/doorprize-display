@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -99,11 +102,20 @@ class _AudienceScreenState extends State<AudienceScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Logo selalu tampil — baik saat menunggu maupun saat
+              // nomor sudah muncul (sesuai mock yang disetujui).
+              Center(
+                child: Image.asset(
+                  'assets/images/logo_bpr.png',
+                  width: 300,
+                ),
+              ),
+              const SizedBox(height: 10),
               Text(
                 _title.toUpperCase(),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 64,
+                  fontSize: 54,
                   fontWeight: FontWeight.w900,
                   color: AppColors.gold,
                   letterSpacing: 4,
@@ -125,12 +137,15 @@ class _AudienceScreenState extends State<AudienceScreen> {
               Expanded(
                 child: shown.isEmpty
                     ? const Center(
-                        child: Text(
-                          'Menunggu nomor doorprize…',
-                          style: TextStyle(
-                            fontSize: 28,
-                            color: AppColors.muted,
-                          ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Logo "hidup": glow bernapas + scale halus,
+                            // loop 4 detik (versi native dari logo-bpr-loop).
+                            PulsingLogo(width: 560),
+                            SizedBox(height: 40),
+                            WaitingDots(),
+                          ],
                         ),
                       )
                     : LayoutBuilder(
@@ -229,6 +244,123 @@ class _AudienceScreenState extends State<AudienceScreen> {
           const SizedBox(width: 60), // penyeimbang badge kiri
         ],
       ),
+    );
+  }
+}
+
+/// Logo BPR yang "hidup": glow bernapas + scale halus, loop 4 detik mulus.
+/// Versi native Flutter dari `logo-bpr-loop` yang dibuat untuk overlay OBS —
+/// dipakai di layar penonton (waiting state) dan header.
+class PulsingLogo extends StatefulWidget {
+  final double width;
+  const PulsingLogo({super.key, required this.width});
+
+  @override
+  State<PulsingLogo> createState() => _PulsingLogoState();
+}
+
+class _PulsingLogoState extends State<PulsingLogo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 4),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) {
+        final breathe = 0.5 - 0.5 * math.cos(2 * math.pi * _c.value);
+        return Transform.scale(
+          scale: 1.0 + 0.024 * breathe,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: 0.35 + 0.30 * breathe,
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: Image.asset(
+                    'assets/images/logo_bpr.png',
+                    width: widget.width,
+                  ),
+                ),
+              ),
+              Image.asset('assets/images/logo_bpr.png', width: widget.width),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Teks "MENUNGGU PENGUNDIAN" dengan titik-titik animasi jalan.
+class WaitingDots extends StatefulWidget {
+  const WaitingDots({super.key});
+
+  @override
+  State<WaitingDots> createState() => _WaitingDotsState();
+}
+
+class _WaitingDotsState extends State<WaitingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) {
+        final n = (_c.value * 4).floor() % 4;
+        // FittedBox: mengecil otomatis di layar sempit agar tidak overflow.
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'MENUNGGU PENGUNDIAN',
+                style: TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.text,
+                  letterSpacing: 8,
+                ),
+              ),
+              // Lebar tetap agar teks tidak goyang saat titik berubah.
+              SizedBox(
+                width: 76,
+                child: Text(
+                  '.' * n,
+                  style: const TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.gold,
+                    letterSpacing: 8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
