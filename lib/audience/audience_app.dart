@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,6 +39,19 @@ class _AudienceScreenState extends State<AudienceScreen> {
   String _title = 'NOMOR DOORPRIZE';
   List<String> _numbers = [];
 
+  /// Bunyi "ting!" tiap nomor baru + highlight kartu terbaru.
+  final AudioPlayer _dingPlayer = AudioPlayer();
+  String? _highlightNomor;
+  Timer? _highlightTimer;
+  static const _highlightDuration = Duration(seconds: 6);
+
+  @override
+  void dispose() {
+    _highlightTimer?.cancel();
+    _dingPlayer.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -58,7 +73,22 @@ class _AudienceScreenState extends State<AudienceScreen> {
       final t = (args[DoorprizeProtocol.argTitle] as String?)?.trim();
       _title = (t == null || t.isEmpty) ? 'NOMOR DOORPRIZE' : t;
       final raw = args[DoorprizeProtocol.argNumbers];
-      _numbers = raw is List ? raw.map((e) => '$e').toList() : [];
+      final updated =
+          raw is List ? raw.map((e) => '$e').toList() : <String>[];
+      if (updated.length > _numbers.length && updated.isNotEmpty) {
+        // Nomor baru muncul: bunyikan "ting!" + highlight kartu terakhir.
+        _highlightNomor = updated.last;
+        _highlightTimer?.cancel();
+        _highlightTimer = Timer(_highlightDuration, () {
+          if (mounted) setState(() => _highlightNomor = null);
+        });
+        unawaited(_dingPlayer.play(AssetSource('sounds/ding.wav')));
+      } else if (updated.length != _numbers.length) {
+        // Daftar berubah (hapus/edit): matikan highlight.
+        _highlightNomor = null;
+        _highlightTimer?.cancel();
+      }
+      _numbers = updated;
     });
   }
 
@@ -181,6 +211,9 @@ class _AudienceScreenState extends State<AudienceScreen> {
                                       seq: i + 1,
                                       nomor: shown[i],
                                       fontSize: fontSize,
+                                      // Nomor terbaru: glow emas + badge BARU.
+                                      isNew: _highlightNomor != null &&
+                                          shown[i] == _highlightNomor,
                                     ),
                                   ),
                                 ),
@@ -201,13 +234,26 @@ class _AudienceScreenState extends State<AudienceScreen> {
     required int seq,
     required String nomor,
     required double fontSize,
+    bool isNew = false,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       decoration: BoxDecoration(
         color: AppColors.card,
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.55)),
+        border: Border.all(
+          color: AppColors.gold.withValues(alpha: isNew ? 1.0 : 0.55),
+          width: isNew ? 2.5 : 1,
+        ),
         borderRadius: BorderRadius.circular(16),
+        boxShadow: isNew
+            ? [
+                BoxShadow(
+                  color: AppColors.gold.withValues(alpha: 0.55),
+                  blurRadius: 28,
+                  spreadRadius: 2,
+                ),
+              ]
+            : null,
       ),
       child: Row(
         children: [
@@ -241,7 +287,29 @@ class _AudienceScreenState extends State<AudienceScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 60), // penyeimbang badge kiri
+          // Kanan: badge BARU untuk nomor terbaru, spacer biasa untuk
+          // sisanya (lebar disamakan agar nomor tetap di tengah).
+          isNew
+              ? Container(
+                  width: 76,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Text(
+                    'BARU',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.bg,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                )
+              : const SizedBox(width: 60), // penyeimbang badge kiri
         ],
       ),
     );
